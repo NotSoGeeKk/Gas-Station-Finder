@@ -58,10 +58,10 @@
 
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script>
-  const routeGeometry = {{ route_geometry_json }};
-  const fuelStops     = {{ fuel_stops_json }};
-  const startPoint    = {{ start_json }};
-  const finishPoint   = {{ finish_json }};
+  const routeGeometry = {{ route_geometry_json|safe }};
+  const fuelStops     = {{ fuel_stops_json|safe }};
+  const startPoint    = {{ start_json|safe }};
+  const finishPoint   = {{ finish_json|safe }};
 
   const map = L.map("map");
 

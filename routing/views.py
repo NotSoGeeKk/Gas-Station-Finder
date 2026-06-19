@@ -3,6 +3,7 @@ import logging
 import urllib.parse
 
 from django.shortcuts import render
+from drf_spectacular.utils import extend_schema, OpenApiParameter, OpenApiExample
 from rest_framework.decorators import api_view
 from rest_framework.response import Response
 from rest_framework import status
@@ -14,7 +15,7 @@ from routing.optimizer import (
     plan_fuel_stops,
     NoStationInRangeError,
 )
-from routing.serializers import RouteRequestSerializer
+from routing.serializers import RouteRequestSerializer, RouteResponseSerializer
 
 logger = logging.getLogger(__name__)
 
@@ -30,6 +31,11 @@ def _build_map_page_url(request, start: str, finish: str, max_range_miles: float
     return request.build_absolute_uri(f"/api/map/?{params}")
 
 
+@extend_schema(
+    summary="Health check",
+    description="Liveness probe — returns `{\"status\": \"ok\"}` when the server is up.",
+    responses={200: {"type": "object", "properties": {"status": {"type": "string", "example": "ok"}}}},
+)
 @api_view(["GET"])
 def health(request):
     """GET /api/health/ - simple liveness check."""
@@ -87,6 +93,30 @@ def _run_route_pipeline(start_query: str, finish_query: str, max_range_miles: fl
     }
 
 
+@extend_schema(
+    summary="Plan a fuel-optimised route",
+    description=(
+        "Given a start and finish location within the USA, returns the driving route, "
+        "an optimal (lowest-cost) sequence of fuel stops respecting the vehicle's maximum range, "
+        "and the total money spent on fuel.\n\n"
+        "**External API calls:** 0–2 Nominatim geocoding calls (skipped for raw lat,lng) "
+        "+ exactly 1 OSRM routing call. Fuel data is served from local DB — no extra calls."
+    ),
+    request=RouteRequestSerializer,
+    responses={200: RouteResponseSerializer},
+    examples=[
+        OpenApiExample(
+            "Chicago to Dallas",
+            value={"start": "Chicago, IL", "finish": "Dallas, TX", "max_range_miles": 500, "mpg": 10},
+            request_only=True,
+        ),
+        OpenApiExample(
+            "Using raw coordinates",
+            value={"start": "41.8781,-87.6298", "finish": "32.7767,-96.7970"},
+            request_only=True,
+        ),
+    ],
+)
 @api_view(["POST"])
 def plan_route(request):
     """POST /api/route/
@@ -156,9 +186,9 @@ def map_view(request):
         }, status=400)
 
     try:
-        max_range_miles = float(request.GET.get("max_range_miles", 500))
-        mpg = float(request.GET.get("mpg", 10))
-    except ValueError:
+        max_range_miles = float(request.GET.get("max_range_miles", 500).strip().strip('"\''))
+        mpg = float(request.GET.get("mpg", 10).strip().strip('"\''))
+    except (ValueError, AttributeError):
         return render(request, "routing/map_error.html", {
             "error": "'max_range_miles' and 'mpg' must be numbers.",
         }, status=400)

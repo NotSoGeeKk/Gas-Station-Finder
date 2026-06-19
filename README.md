@@ -6,6 +6,7 @@ A Django REST API that, given a start and finish location in the USA, returns:
 - an optimal sequence of fuel stops along that route, chosen for lowest
   total cost, respecting a configurable maximum vehicle range
 - the total dollar amount that will be spent on fuel for the trip
+- an interactive map showing the route polyline and fuel stop markers
 
 Built for the Backend Django Engineer take-home assessment.
 
@@ -23,6 +24,16 @@ python manage.py runserver
 
 The server runs at `http://127.0.0.1:8000/`.
 
+## Exploring the API
+
+| URL | Description |
+|---|---|
+| `http://127.0.0.1:8000/api/docs/` | **Swagger UI** — interactive browser-based API tester |
+| `http://127.0.0.1:8000/api/redoc/` | ReDoc — clean read-only documentation |
+| `http://127.0.0.1:8000/api/schema/` | Raw OpenAPI 3.0 YAML (importable into Postman) |
+
+Open Swagger UI, click `POST /api/route/` → **Try it out** → **Execute** to send a live request without any extra tools.
+
 ## API
 
 ### `POST /api/route/`
@@ -39,7 +50,8 @@ The server runs at `http://127.0.0.1:8000/`.
 ```
 
 `start` / `finish` accept either a free-text place name (geocoded via OSM
-Nominatim) or `"lat,lng"` directly, which skips geocoding entirely.
+Nominatim) or `"lat,lng"` directly, which skips geocoding entirely. Both
+must be within the United States.
 `max_range_miles` and `mpg` are optional and default to `500` and `10`.
 
 **Response**
@@ -48,43 +60,49 @@ Nominatim) or `"lat,lng"` directly, which skips geocoding entirely.
 {
   "start": {"query": "Chicago, IL", "latitude": 41.8781, "longitude": -87.6298},
   "finish": {"query": "Dallas, TX", "latitude": 32.7767, "longitude": -96.797},
-  "distance_miles": 941.1,
-  "duration_hours": 14.48,
+  "distance_miles": 966.9,
+  "duration_hours": 17.1,
   "max_range_miles": 500,
   "mpg": 10,
-  "total_fuel_cost_usd": 132.56,
-  "number_of_fuel_stops": 1,
+  "total_fuel_cost_usd": 188.25,
+  "number_of_fuel_stops": 2,
   "fuel_stops": [
     {
-      "name": "RAPID ROBERTS #123",
-      "address": "I-44, EXIT 80",
-      "city": "Springfield",
-      "state": "MO",
-      "price_per_gallon": 2.899,
-      "latitude": 37.2156,
-      "longitude": -93.3026,
-      "mile_marker": 483.9,
+      "name": "HUCKS FOOD & FUEL #379",
+      "address": "I-57, EXIT 53",
+      "city": "Marion",
+      "state": "IL",
+      "price_per_gallon": 2.929,
+      "latitude": 37.7257,
+      "longitude": -88.9294,
+      "mile_marker": 318.0,
       "gallons_purchased": 50.0,
-      "cost": 132.56
+      "cost": 97.55
     }
   ],
   "route_geometry": [[41.8781, -87.6298], ["..."]],
-  "map_url": "http://127.0.0.1:8000/api/map/?start=Chicago%2C+IL&finish=Dallas%2C+TX&max_range_miles=500&mpg=10"
+  "map_url": "http://127.0.0.1:8000/api/map/?start=Chicago%2C+IL&finish=Dallas%2C+TX&max_range_miles=500.0&mpg=10.0"
 }
 ```
 
 `route_geometry` is the full polyline (`[lat, lng]` pairs) for rendering on
 any map frontend (Leaflet, Mapbox GL, Google Maps, etc.) without further API
-calls. `map_url` is a link to `GET /api/map/` — an interactive Leaflet page
-that plots the route polyline, start/finish pins, and numbered fuel-stop
-markers with popup cost details.
+calls. `map_url` links to an interactive Leaflet map — open it in a browser
+to see the route polyline, start/finish pins, and numbered fuel-stop markers
+with popup cost details.
 
 ### `GET /api/map/`
 
 **Query params:** `start`, `finish`, `max_range_miles` (default 500), `mpg` (default 10)
 
-Returns an HTML page with an interactive Leaflet map. Open `map_url` from
-the `/api/route/` response directly in a browser to visualise the trip.
+Returns a browser-ready HTML page with an interactive Leaflet map showing:
+- Blue polyline tracing the full driving route
+- Green **S** pin at the start, red **F** pin at the finish
+- Numbered orange pins at each fuel stop with a popup showing station name,
+  price per gallon, gallons purchased, and leg cost
+
+The `map_url` field in the `/api/route/` JSON response is a pre-built link
+to this page — paste it into a browser or click it directly from Postman.
 
 ### `GET /api/health/`
 
@@ -136,7 +154,7 @@ coordinates and are simply excluded from route matching.
    itself is within range.
 4. Cost is computed per leg: the price paid at a stop funds the driving
    distance from that stop to the next one (or to the destination, for
-   the last stop). The fuel used on the very first leg (start -> first
+   the last stop). The fuel used on the very first leg (start → first
    stop) is assumed to already be in the tank and isn't charged.
 
 This greedy strategy is optimal for this problem: since the vehicle must
@@ -144,6 +162,13 @@ refuel at some point within every max-range window regardless of choice,
 and a cheaper station fully dominates a costlier one if both are reachable,
 always taking the cheapest reachable option (with a furthest-stop tiebreak
 to avoid unnecessary stops) minimizes total spend.
+
+### USA-only validation
+
+Raw `"lat,lng"` inputs are validated against the US bounding box
+(lat 18–72, lng -180 to -66, covering the contiguous states, Alaska, and
+Hawaii). Free-text geocoding is already US-restricted via Nominatim's
+`countrycodes=us` parameter.
 
 ### Performance
 
@@ -165,8 +190,10 @@ contract (with external calls mocked).
 ## Tech stack
 
 - Django 5.1 + Django REST Framework
+- drf-spectacular for OpenAPI 3.0 schema + Swagger UI / ReDoc
 - SQLite (swap `DATABASES` in `config/settings.py` for Postgres/MySQL in
   production; nothing in the code is SQLite-specific)
 - [OSRM](http://project-osrm.org/) for routing (free, no API key)
 - [OSM Nominatim](https://nominatim.org/) for optional free-text geocoding
 - NumPy for vectorized nearest-point matching
+- Leaflet.js for the interactive map preview page
